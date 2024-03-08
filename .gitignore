@@ -1,0 +1,19 @@
+
+__pycache__/
+.idea
+.DS_Store
+
+# wandb
+wandb/
+
+#saved binaries
+checkpoints/
+
+#mujoco log files
+MUJOCO_LOG.TXT
+
+#previous scripts
+scripts/
+videos/
+runs/
+.ipynb_checkpoints/
