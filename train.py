@@ -76,6 +76,8 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 4
     """the frequency of training"""
+    n_q_nets: int = 1
+    """the number of Q networks to compose"""
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -122,6 +124,26 @@ class QNetwork(nn.Module):
 
     def forward(self, x):
         return self.network(x / 255.0)
+
+
+class QNetworkCompose(nn.Module):
+    def __init__(self, env, args):
+        super().__init__()
+        self.q_networks = nn.ModuleList()
+        self.network_init = QNetwork(env)
+        self.q_networks.append(self.network_init)
+
+        for _ in range(args.n_q_nets - 1):
+            self.q_networks.append(QNetwork(env))
+    def forward(self, x, return_compose=False):
+        x = x / 255.0
+        q_nets_out = [network(x) for network in self.q_networks]
+        q_values = torch.stack(q_nets_out, dim=-1).sum(dim=-1)
+        if return_compose:
+            return q_values, q_nets_out
+        return q_values
+
+
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
@@ -173,9 +195,9 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    q_network = QNetwork(envs).to(device)
+    q_network = QNetworkCompose(envs, args).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(envs).to(device)
+    target_network = QNetworkCompose(envs, args).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
     rb = ReplayBuffer(
@@ -225,14 +247,36 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             if global_step % args.train_frequency == 0:
                 data = rb.sample(args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=1)
-                    td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
-                old_val = q_network(data.observations).gather(1, data.actions).squeeze()
-                loss = F.mse_loss(td_target, old_val)
+                    targets, q_targets_outs = target_network(data.next_observations, return_compose=True)
+                    target_max = targets.max(dim=1)
+                    target_actions = targets.argmax(dim=1)
+                    q_targets_outs = [q.gather(1, target_actions).squeeze() for q in q_targets_outs]
+
+                _, q_outs = q_network(data.observations, return_compose=True)
+                q_outs = [q.gather(1, data.actions).squeeze() for q in q_outs]
+
+                # r1 + gamma * r2 + gamma^2 * r3
+                # r1 - v0 + gamma * (r2 - v1 + v1) + gamma^2 * (r3 - v2 + v2)... ...+ v_0
+                # r1 + gamma * v1 - v0  +  gamma * (r2 + gamma*v2 - v1 ) + gamma^2 * (r3 + gamma*v3 - v2)... ...+ v_0
+                # r'1 + gamma * r'2 + gamma^2 * r'3
+                td_targets = [] # r + gamma * q_target1 # r_1 - v_1  gamma * q_target1
+                new_reward = data.rewards.flatten()  # r - q1 + gamma * q_target2
+                for target, q in zip(q_targets_outs, q_outs):
+                    td_target = new_reward + args.gamma * target * (1 - data.dones.flatten())
+                    td_targets.append(td_target.detach())
+                    new_reward = td_target - q
+
+                loss_comp = {}
+                for i, (q, t) in enumerate(q_outs, td_targets):
+                    loss_comp[i] = F.mse_loss(q, t)
+
+                loss = sum(loss.values())
 
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
-                    writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
+                    for i, loss in loss_comp.items():
+                        writer.add_scalar(f"losses/q_values_{i}", loss, global_step)
+                    # writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
