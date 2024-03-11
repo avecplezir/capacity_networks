@@ -81,6 +81,8 @@ class Args:
     """the number of Q networks to compose"""
     reset_transient_frequency: int = -1
     """how often to reset the transient NN to random weights. -1 means never"""
+    qnetwork: str = "simple"
+    """the type of Q network to use. simple or capacity"""
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -156,9 +158,9 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    if args.agent == "simple":
+    if args.qnetwork == "simple":
         QNetwork = nets.QNetworkCompose
-    elif args.agent == "capacity":
+    elif args.qnetwork == "capacity":
         QNetwork = nets.QNetworkTwoDifCapacities
     else:
         raise ValueError("unknown agent type")
@@ -255,8 +257,8 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 optimizer.step()
 
             # update target network
-            if args.target_network_frequency > 0:
-                if global_step % args.target_network_frequency == 0:
+            if args.reset_transient_frequency > 0:
+                if global_step % args.reset_transient_frequency == 0:
                     q_new_reset = QNetwork(envs).to(device)
                     for target_network_param, q_network_param in zip(q_new_reset.parameters(), q_network.q_networks[0].parameters()):
                         target_network_param.data.copy_(target_network_param.data)

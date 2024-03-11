@@ -50,7 +50,8 @@ class QNetworkTwoDifCapacities(nn.Module):
 
         self.q_networks = nn.ModuleList()
         self.q_networks.append(nn.Sequential(
-           nn.AvgPool2d(),
+           nn.AdaptiveAvgPool2d((1, 1)),
+           nn.Flatten(),
            nn.Linear(64, 256),
            nn.ReLU(),
            nn.Linear(256, env.single_action_space.n))
