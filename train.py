@@ -158,13 +158,15 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    if args.qnetwork == "simple":
-        QNetwork = nets.QNetworkCompose
-    elif args.qnetwork == "capacity":
-        QNetwork = nets.QNetworkTwoDifCapacities
-    else:
-        raise ValueError("unknown agent type")
-
+    # if args.qnetwork == "simple":
+    #     QNetwork = nets.QNetworkCompose
+    # elif args.qnetwork == "capacity":
+    #     QNetwork = nets.QNetworkCapacities2
+    # elif args.qnetwork == "capacityenc":
+    #     QNetwork = nets.QNetworkEncCapacities
+    # else:
+    #     raise ValueError("unknown agent type")
+    QNetwork = getattr(nets, args.qnetwork)
     q_network = QNetwork(envs, args).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
     target_network = QNetwork(envs, args).to(device)
@@ -257,6 +259,13 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 optimizer.step()
 
             # update target network
+            if global_step % args.target_network_frequency == 0:
+                for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
+                    target_network_param.data.copy_(
+                        args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
+                    )
+
+            # reset transient network
             if args.reset_transient_frequency > 0:
                 if global_step % args.reset_transient_frequency == 0:
                     q_new_reset = QNetwork(envs).to(device)
