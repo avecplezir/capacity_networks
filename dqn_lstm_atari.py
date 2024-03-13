@@ -274,7 +274,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
         # rb.add(obs, actions, rewards, real_next_obs, terminations)
-        rb.push((obs, actions, rewards, real_next_obs, terminations, current_lstm_state))
+        rb.add((obs, actions, rewards, real_next_obs, terminations, current_lstm_state))
         current_lstm_state = next_lstm_state
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook

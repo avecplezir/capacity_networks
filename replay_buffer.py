@@ -16,7 +16,7 @@ class ReplayMemory():
         self.idx = 0
         self.full = False
 
-    def push(self, transition):
+    def add(self, transition):
         state, action, reward, next_state, done, lstm_state = transition
         self.observation[self.idx] = state
         self.next_observation[self.idx] = next_state
