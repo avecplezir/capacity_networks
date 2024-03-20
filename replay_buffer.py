@@ -12,31 +12,33 @@ class ReplayMemory():
         self.action = np.empty((buffer_limit, action_size), dtype=np.float32)
         self.reward = np.empty((buffer_limit,), dtype=np.float32) 
         self.terminal = np.empty((buffer_limit,), dtype=bool)
-        self.lstm_state = np.empty((buffer_limit, lstm_state_size), dtype=np.float32)
+        self.lstm_h_state = np.empty((buffer_limit, lstm_state_size), dtype=np.float32)
+        self.lstm_c_state = np.empty((buffer_limit, lstm_state_size), dtype=np.float32)
         self.idx = 0
         self.full = False
 
     def add(self, transition):
-        state, action, reward, next_state, done, lstm_state = transition
+        state, action, reward, next_state, done, lstm_h_state, lstm_c_state = transition
         self.observation[self.idx] = state
         self.next_observation[self.idx] = next_state
         self.action[self.idx] = action 
         self.reward[self.idx] = reward
         self.terminal[self.idx] = done
-        self.lstm_state[self.idx] = lstm_state
+        self.lstm_h_state[self.idx] = lstm_h_state
+        self.lstm_c_state[self.idx] = lstm_c_state
         self.idx = (self.idx + 1) % self.buffer_limit
         self.full = self.full or self.idx == 0
     
     def sample(self, n):
         idxes = np.random.randint(0, self.buffer_limit if self.full else self.idx, size=n)
         return ReplayBufferSamples(self.observation[idxes], self.action[idxes], self.reward[idxes], self.next_observation[idxes], \
-            self.terminal[idxes], self.lstm_state[idxes])
+            self.terminal[idxes], self.lstm_h_state[idxes], self.lstm_c_state[idxes])
 
     def sample_seq(self, seq_len, batch_size):
         n = batch_size
         l = seq_len
-        obs, act, rew, next_obs, term, lstm_state = self._retrieve_batch(np.asarray([self._sample_idx(l) for _ in range(n)]), n, l)
-        return ReplayBufferSamples(obs, act, rew, next_obs, term, lstm_state)
+        obs, act, rew, next_obs, term, lstm_h_state, lstm_c_state = self._retrieve_batch(np.asarray([self._sample_idx(l) for _ in range(n)]), n, l)
+        return ReplayBufferSamples(obs, act, rew, next_obs, term, lstm_h_state, lstm_c_state)
 
     def sample_probe_data(self, data_size):
         idxes = np.random.randint(0, self.buffer_limit if self.full else self.idx, size=data_size)
@@ -53,7 +55,8 @@ class ReplayMemory():
     def _retrieve_batch(self, idxs, n, l):
         vec_idxs = idxs.transpose().reshape(-1)
         return self.observation[vec_idxs].reshape((l, n) + self.obs_size), self.action[vec_idxs].reshape(l, n, -1), self.reward[vec_idxs].reshape(l, n), \
-            self.next_observation[vec_idxs].reshape((l, n) + self.obs_size), self.terminal[vec_idxs].reshape(l, n), self.lstm_state[vec_idxs].reshape(l, n, -1)
+            self.next_observation[vec_idxs].reshape((l, n) + self.obs_size), self.terminal[vec_idxs].reshape(l, n), \
+            self.lstm_h_state[vec_idxs].reshape(l, n, -1), self.lstm_c_state[vec_idxs].reshape(l, n, -1)
     
     def __len__(self):
         return self.buffer_limit if self.full else self.idx+1
@@ -65,4 +68,5 @@ class ReplayBufferSamples(NamedTuple):
     next_observations: th.Tensor
     dones: th.Tensor
     rewards: th.Tensor
-    lstm_state: th.Tensor
+    lstm_h_state: th.Tensor
+    lstm_c_state: th.Tensor

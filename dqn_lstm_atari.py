@@ -115,7 +115,7 @@ class QNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
         self.network = nn.Sequential(
-            layer_init(nn.Conv2d(1, 32, 8, stride=4)),
+            layer_init(nn.Conv2d(4, 32, 8, stride=4)),
             nn.ReLU(),
             layer_init(nn.Conv2d(32, 64, 4, stride=2)),
             nn.ReLU(),
@@ -142,17 +142,23 @@ class QNetwork(nn.Module):
     def get_states(self, x, lstm_state, done):
         hidden = self.network(x / 255.0)
 
+        print('hidden', hidden.shape)
         # LSTM logic
         batch_size = lstm_state[0].shape[1]
         hidden = hidden.reshape((-1, batch_size, self.lstm.input_size))
         done = done.reshape((-1, batch_size))
+        print('2 hidden', hidden.shape)
+        print('done', done.shape)
         new_hidden = []
         for h, d in zip(hidden, done):
+            print('h, d, lstm_state', h.shape, d.shape, lstm_state[0].shape, lstm_state[1].shape)
+            nd = (1.0 - d).view((1, -1, 1))
+            print('nd', nd.shape)
             h, lstm_state = self.lstm(
                 h.unsqueeze(0),
                 (
-                    (1.0 - d).view(1, -1, 1) * lstm_state[0],
-                    (1.0 - d).view(1, -1, 1) * lstm_state[1],
+                    nd * lstm_state[0],
+                    nd * lstm_state[1],
                 ),
             )
             new_hidden += [h]
@@ -253,7 +259,8 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
-            q_values, next_lstm_state = q_network(torch.Tensor(obs).to(device), next_lstm_state, next_done, return_lstm_state=True)
+            q_values, next_lstm_state = q_network(torch.Tensor(obs).to(device), next_lstm_state,
+                                                  torch.Tensor(next_done).to(device), return_lstm_state=True)
             actions = torch.argmax(q_values, dim=1).cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
@@ -274,7 +281,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
         # rb.add(obs, actions, rewards, real_next_obs, terminations)
-        rb.add((obs, actions, rewards, real_next_obs, terminations, current_lstm_state))
+        rb.add((obs, actions, rewards, real_next_obs, terminations, *(h.detach().cpu().numpy() for h in current_lstm_state)))
         current_lstm_state = next_lstm_state
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
@@ -285,9 +292,9 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             if global_step % args.train_frequency == 0:
                 data = rb.sample_seq(args.seq_len, args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations, data.lstm_state[1]).max(dim=1)
+                    target_max, _ = target_network(data.next_observations, (data.lstm_h_state[1], data.lstm_c_state[1])).max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
-                old_val = q_network(data.observations, data.lstm_state[0]).gather(2, data.actions).squeeze()
+                old_val = q_network(data.observations, (data.lstm_h_state[0], data.lstm_c_state[0])).gather(2, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:

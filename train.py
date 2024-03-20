@@ -268,7 +268,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             # reset transient network
             if args.reset_transient_frequency > 0:
                 if global_step % args.reset_transient_frequency == 0:
-                    q_new_reset = QNetwork(envs).to(device)
+                    q_new_reset = nets.QNetwork(envs).to(device)
                     for target_network_param, q_network_param in zip(q_new_reset.parameters(), q_network.q_networks[0].parameters()):
                         target_network_param.data.copy_(target_network_param.data)
                 target_network.q_networks[0].load_state_dict(q_network.q_networks[0].state_dict())
