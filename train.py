@@ -83,6 +83,8 @@ class Args:
     """how often to reset the transient NN to random weights. -1 means never"""
     qnetwork: str = "simple"
     """the type of Q network to use. simple or capacity"""
+    pipeline: int = 0
+    """the pipeline to use. 0 or 1, 0 is standard cascade value pipeline, 1 -- modification"""
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -131,7 +133,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 
         wandb.init(
             project=args.wandb_project_name,
-            entity=os.getenv('WANDB_USERNAME', 'avecplezir'),
+            entity='avecplezir', #os.getenv('WANDB_USERNAME', 'avecplezir'),
             sync_tensorboard=True,
             config=vars(args),
             name=run_name,
@@ -224,23 +226,43 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     target_actions = torch.argmax(targets, dim=1).unsqueeze(1)
                     v_targets_list = [q.gather(1, target_actions).squeeze() for q in q_targets_list]
 
-                _, q_list = q_network(data.observations, return_compose=True)
+                q, q_list = q_network(data.observations, return_compose=True)
                 v_list = [q.gather(1, data.actions).squeeze() for q in q_list]
 
                 # r1 + gamma * r2 + gamma^2 * r3
                 # r1 - v0 + gamma * (r2 - v1 + v1) + gamma^2 * (r3 - v2 + v2)... ...+ v_0
                 # r1 + gamma * v1 - v0  +  gamma * (r2 + gamma*v2 - v1 ) + gamma^2 * (r3 + gamma*v3 - v2)... ...+ v_0
                 # r'1 + gamma * r'2 + gamma^2 * r'3
-                td_targets = []
-                new_reward = data.rewards.flatten()  # r - q1 + gamma * q_target2
-                for i, (v0, v1) in enumerate(zip(v_list, v_targets_list)):
-                    td_target = new_reward + args.gamma * v1 * (1 - data.dones.flatten())
-                    td_targets.append(td_target.detach())
-                    new_reward = td_target - v0
+                if args.pipeline == 0:
+                    td_targets = []
+                    new_reward = data.rewards.flatten()  # r - q1 + gamma * q_target2
+                    for i, (v0, v1) in enumerate(zip(v_list, v_targets_list)):
+                        td_target = new_reward + args.gamma * v1 * (1 - data.dones.flatten())
+                        td_targets.append(td_target.detach())
+                        new_reward = td_target - v0
+                elif args.pipeline == 1:
+                    # cum_sum_q_targets0 = v0+v1+v2+v3+...
+                    # cum_sum_q_targets1 = v1+v2+v3+...
+                    # ...
+                    cum_sum_q_targets = torch.flip(torch.cumsum(torch.stack(q_targets_list[::-1], dim=0), dim=0), dims=[0])
+                    cum_sum_q = torch.flip(torch.cumsum(torch.stack(q_list[::-1], dim=0), dim=0), dims=[0])
+                    new_reward = data.rewards.flatten()
+                    for i, (v0, cum_v_target) in enumerate(zip(v_list, cum_sum_q_targets)):
+                        td_target = new_reward + args.gamma * cum_v_target * (1 - data.dones.flatten())
+                        td_targets.append(td_target.detach())
+                        new_reward = td_target - v0
+                else:
+                    raise ValueError(f"unknown pipeline {args.pipeline}")
 
                 loss_comp = {}
-                for i, (q, t) in enumerate(zip(v_list, td_targets)):
-                    loss_comp[i] = F.mse_loss(q, t)
+                if args.pipeline == 0:
+                    for i, (q, t) in enumerate(zip(v_list, td_targets)):
+                        loss_comp[i] = F.mse_loss(q, t)
+                elif args.pipeline == 1:
+                    for i, (cq, q, t) in enumerate(zip(cum_sum_q, v_list, td_targets)):
+                        loss_comp[i] = F.mse_loss(cq.detach() + q - q.detach(), t)
+                else:
+                    raise ValueError(f"unknown pipeline {args.pipeline}")
 
                 loss = sum(loss_comp.values())
 
@@ -270,7 +292,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 if global_step % args.reset_transient_frequency == 0:
                     q_new_reset = nets.QNetwork(envs).to(device)
                     for target_network_param, q_network_param in zip(q_new_reset.parameters(), q_network.q_networks[0].parameters()):
-                        target_network_param.data.copy_(target_network_param.data)
+                        q_network_param.data.copy_(target_network_param.data)
                 target_network.q_networks[0].load_state_dict(q_network.q_networks[0].state_dict())
 
 

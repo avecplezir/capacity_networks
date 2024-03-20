@@ -168,7 +168,7 @@ class QNetworkCapacities3(nn.Module):
 
     def forward(self, x, return_compose=False):
         x = x / 255.0
-        q_nets_out = [self.q_networks[0](x[:, :1]), self.q_networks[1](x)]
+        q_nets_out = [self.q_networks[0](x[:, -1:]), self.q_networks[1](x)]
         q_values = torch.stack(q_nets_out, dim=-1).sum(dim=-1)
         if return_compose:
             return q_values, q_nets_out
