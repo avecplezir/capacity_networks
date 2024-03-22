@@ -128,6 +128,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 """
         )
     args = tyro.cli(Args)
+    learn_first_nn = 1
     assert args.num_envs == 1, "vectorized envs are not supported at the moment"
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
@@ -264,10 +265,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     td_targets.append(td_target.detach())
                 elif args.pipeline == 3:
                     td_targets = []
-                    reward = data.rewards.flatten() + args.gamma * v_targets_list[0] * (1 - data.dones.flatten()) - v_list[1]
+                    reward = data.rewards.flatten() + args.gamma * v_targets_list[1] * (1 - data.dones.flatten()) - v_list[1]
                     td_target = reward + args.gamma * v_targets_list[0] * (1 - data.dones.flatten())
                     td_targets.append(td_target.detach())
-                    reward = data.rewards.flatten() + args.gamma * v_targets_list[1] * (1 - data.dones.flatten()) - v_list[0]
+                    reward = data.rewards.flatten() + args.gamma * v_targets_list[0] * (1 - data.dones.flatten()) - v_list[0]
                     td_target = reward + args.gamma * v_targets_list[1] * (1 - data.dones.flatten())
                     td_targets.append(td_target.detach())
                 else:
@@ -281,28 +282,47 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     for i, (cq, q, t) in enumerate(zip(cum_sum_q, v_list, td_targets)):
                         loss_comp[i] = F.mse_loss(cq.detach() + q - q.detach(), t)
                 elif args.pipeline == 2:
-                    loss_comp[0] = F.mse_loss(v_list[0] + v_list[1].detach(), td_targets[0])
-                    loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
+                    if args.learns_by_turns > 0:
+                        if global_step % args.learns_by_turns == 0:
+                            learn_first_nn = (learn_first_nn + 1) % 2
+                        if learn_first_nn:
+                            loss_comp[0] = F.mse_loss(v_list[0] + v_list[1].detach(), td_targets[0])
+                        else:
+                            loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
+                    else:
+                        loss_comp[0] = F.mse_loss(v_list[0] + v_list[1].detach(), td_targets[0])
+                        loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
                 elif args.pipeline == 3:
-                    loss_comp[0] = F.mse_loss(v_list[0], td_targets[0])
-                    loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
+                    if args.learns_by_turns > 0:
+                        if global_step % args.learns_by_turns == 0:
+                            learn_first_nn = (learn_first_nn + 1) % 2
+                        if learn_first_nn:
+                            loss_comp[0] = F.mse_loss(v_list[0], td_targets[0])
+                        else:
+                            loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
+                    else:
+                        loss_comp[0] = F.mse_loss(v_list[0], td_targets[0])
+                        loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
                 else:
                     raise ValueError(f"unknown pipeline {args.pipeline}")
 
-                if args.learns_by_turns > 0:
-                    learn_first_nn = 1
-                    if global_step % args.learns_by_turns == 0:
-                        learn_first_nn = (learn_first_nn + 1) % 2
-                    if learn_first_nn:
-                        loss_comp[1] == 0
-                    else:
-                        loss_comp[0] == 0
+                # if args.learns_by_turns > 0:
+                #     if global_step % args.learns_by_turns == 0:
+                #         learn_first_nn = (learn_first_nn + 1) % 2
+                #     if learn_first_nn:
+                #         loss_comp[1] = torch.zeros_like(loss_comp[1])
+                #     else:
+                #         loss_comp[0] = torch.zeros_like(loss_comp[0])
+
+                print('loss_comp.values()', loss_comp.values())
                 loss = sum(loss_comp.values())
+                print('loss', loss)
 
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
                     for i, loss in loss_comp.items():
                         writer.add_scalar(f"losses/td_loss_{i}", loss, global_step)
+                        print(f"losses/td_loss_{i}", loss, global_step, learn_first_nn)
                     for i, v in enumerate(v_list):
                         writer.add_scalar(f"losses/q_values_{i}", v.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
