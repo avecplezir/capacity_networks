@@ -79,14 +79,8 @@ class Args:
     """the frequency of training"""
     n_q_nets: int = 1
     """the number of Q networks to compose"""
-    reset_transient_frequency: int = -1
-    """how often to reset the transient NN to random weights. -1 means never"""
     qnetwork: str = "simple"
     """the type of Q network to use. simple or capacity"""
-    pipeline: int = 0
-    """the pipeline to use. 0 or 1, 0 is standard cascade value pipeline, 1 -- modification"""
-    learns_by_turns: int = -1
-    """if toggled, the networks will learn by turns. -1 means never"""
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -162,14 +156,6 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    # if args.qnetwork == "simple":
-    #     QNetwork = nets.QNetworkCompose
-    # elif args.qnetwork == "capacity":
-    #     QNetwork = nets.QNetworkCapacities2
-    # elif args.qnetwork == "capacityenc":
-    #     QNetwork = nets.QNetworkEncCapacities
-    # else:
-    #     raise ValueError("unknown agent type")
     QNetwork = getattr(nets, args.qnetwork)
     q_network = QNetwork(envs, args).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
@@ -235,68 +221,17 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 # r1 - v0 + gamma * (r2 - v1 + v1) + gamma^2 * (r3 - v2 + v2)... ...+ v_0
                 # r1 + gamma * v1 - v0  +  gamma * (r2 + gamma*v2 - v1 ) + gamma^2 * (r3 + gamma*v3 - v2)... ...+ v_0
                 # r'1 + gamma * r'2 + gamma^2 * r'3
-                if args.pipeline == 0:
-                    td_targets = []
-                    new_reward = data.rewards.flatten()  # r - q1 + gamma * q_target2
-                    for i, (v0, v1) in enumerate(zip(v_list, v_targets_list)):
-                        td_target = new_reward + args.gamma * v1 * (1 - data.dones.flatten())
-                        td_targets.append(td_target.detach())
-                        new_reward = td_target - v0
-                elif args.pipeline == 1:
-                    td_targets = []
-                    # cum_sum_q_targets0 = v0+v1+v2+v3+...
-                    # cum_sum_q_targets1 = v1+v2+v3+...
-                    # ...
-                    cum_sum_q_targets = torch.flip(torch.cumsum(torch.stack(v_targets_list[::-1], dim=0), dim=0), dims=[0])
-                    cum_sum_q = torch.flip(torch.cumsum(torch.stack(v_list[::-1], dim=0), dim=0), dims=[0])
-                    new_reward = data.rewards.flatten()
-                    for i, v0 in enumerate(v_list):
-                        td_target = new_reward + args.gamma * cum_sum_q_targets[i] * (1 - data.dones.flatten())
-                        td_targets.append(td_target.detach())
-                        new_reward = td_target - v0
-                elif args.pipeline == 2:
-                    td_targets = []
-                    new_reward = data.rewards.flatten()
-                    td_target = new_reward + args.gamma * (v_targets_list[0] + v_targets_list[1]) * (1 - data.dones.flatten())
+                td_targets = []
+                new_reward = data.rewards.flatten()  # r - q1 + gamma * q_target2
+                for i, (v0, v1) in enumerate(zip(v_list, v_targets_list)):
+                    td_target = new_reward + args.gamma * v1 * (1 - data.dones.flatten())
                     td_targets.append(td_target.detach())
-                    new_reward = td_target - v_list[0]
-                    td_target = new_reward + args.gamma * v_targets_list[1] * (1 - data.dones.flatten())
-                    td_targets.append(td_target.detach())
-                elif args.pipeline == 3:
-                    td_targets = []
-                    reward = data.rewards.flatten() + args.gamma * v_targets_list[0] * (1 - data.dones.flatten()) - v_list[1]
-                    td_target = reward + args.gamma * v_targets_list[0] * (1 - data.dones.flatten())
-                    td_targets.append(td_target.detach())
-                    reward = data.rewards.flatten() + args.gamma * v_targets_list[1] * (1 - data.dones.flatten()) - v_list[0]
-                    td_target = reward + args.gamma * v_targets_list[1] * (1 - data.dones.flatten())
-                    td_targets.append(td_target.detach())
-                else:
-                    raise ValueError(f"unknown pipeline {args.pipeline}")
+                    new_reward = td_target - v0
 
                 loss_comp = {}
-                if args.pipeline == 0:
-                    for i, (q, t) in enumerate(zip(v_list, td_targets)):
-                        loss_comp[i] = F.mse_loss(q, t)
-                elif args.pipeline == 1:
-                    for i, (cq, q, t) in enumerate(zip(cum_sum_q, v_list, td_targets)):
-                        loss_comp[i] = F.mse_loss(cq.detach() + q - q.detach(), t)
-                elif args.pipeline == 2:
-                    loss_comp[0] = F.mse_loss(v_list[0] + v_list[1].detach(), td_targets[0])
-                    loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
-                elif args.pipeline == 3:
-                    loss_comp[0] = F.mse_loss(v_list[0], td_targets[0])
-                    loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
-                else:
-                    raise ValueError(f"unknown pipeline {args.pipeline}")
+                for i, (q, t) in enumerate(zip(v_list, td_targets)):
+                    loss_comp[i] = F.mse_loss(q, t)
 
-                if args.learns_by_turns > 0:
-                    learn_first_nn = 1
-                    if global_step % args.learns_by_turns == 0:
-                        learn_first_nn = (learn_first_nn + 1) % 2
-                    if learn_first_nn:
-                        loss_comp[1] == 0
-                    else:
-                        loss_comp[0] == 0
                 loss = sum(loss_comp.values())
 
                 if global_step % 100 == 0:
@@ -319,15 +254,6 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     target_network_param.data.copy_(
                         args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                     )
-
-            # reset transient network
-            if args.reset_transient_frequency > 0:
-                if global_step % args.reset_transient_frequency == 0:
-                    q_new_reset = nets.QNetwork(envs).to(device)
-                    for target_network_param, q_network_param in zip(q_new_reset.parameters(), q_network.q_networks[0].parameters()):
-                        q_network_param.data.copy_(target_network_param.data)
-                target_network.q_networks[0].load_state_dict(q_network.q_networks[0].state_dict())
-
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
