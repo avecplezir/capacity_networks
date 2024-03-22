@@ -79,7 +79,7 @@ class Args:
     """the frequency of training"""
     n_q_nets: int = 1
     """the number of Q networks to compose"""
-    qnetwork: str = "simple"
+    qnetwork: str = "QNetworkCompose"
     """the type of Q network to use. simple or capacity"""
 
 def make_env(env_id, seed, idx, capture_video, run_name):
