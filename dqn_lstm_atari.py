@@ -19,7 +19,7 @@ from stable_baselines3.common.atari_wrappers import (
     NoopResetEnv,
 )
 # from stable_baselines3.common.buffers import ReplayBuffer
-from replay_buffer import ReplayMemory
+from replay_buffer_hiddens import ReplayMemory
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -226,14 +226,6 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    # rb = ReplayBuffer(
-    #     args.buffer_size,
-    #     envs.single_observation_space,
-    #     envs.single_action_space,
-    #     device,
-    #     optimize_memory_usage=True,
-    #     handle_timeout_termination=False,
-    # )
     rb = ReplayMemory(
         args.buffer_size,
         envs.single_observation_space.shape,
