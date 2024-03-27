@@ -19,9 +19,10 @@ from stable_baselines3.common.atari_wrappers import (
     NoopResetEnv,
 )
 
-from replay_buffer import ReplayMemory
-from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
+
+from replay_buffer import ReplayMemory
+import nets_seq
 
 
 @dataclass
@@ -109,32 +110,8 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 
 # ALGO LOGIC: initialize agent here:
-class QNetwork(nn.Module):
-    def __init__(self, env):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Conv2d(4, 32, 8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, 4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, 3, stride=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(3136, 512),
-            nn.ReLU(),
-            nn.Linear(512, env.single_action_space.n),
-        )
-
-    def forward(self, x, return_hiddens=False):
-        if len(x.shape) == 4:
-            x = x.unsqueeze(0)
-        s, b, ch, w, h = x.shape
-        x = x.view(s * b, ch, w, h)
-        out = self.network(x / 255.0)
-        out = out.view(s, b, -1)
-        if return_hiddens:
-            return out, {}, #{'hidden': None}
-        return out
+import torch
+import torch.nn as nn
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
@@ -159,7 +136,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 
         wandb.init(
             project=args.wandb_project_name,
-            entity=os.getenv('WANDB_USERNAME', 'avecplezir'),
+            entity='avecplezir', #os.getenv('WANDB_USERNAME', 'avecplezir'),
             sync_tensorboard=True,
             config=vars(args),
             name=run_name,
@@ -179,6 +156,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    args.device = device
 
     # env setup
     envs = gym.vector.SyncVectorEnv(
@@ -186,10 +164,13 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    q_network = QNetwork(envs).to(device)
+    QNetwork = getattr(nets_seq, args.qnetwork)
+    q_network = QNetwork(envs, args).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
     target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
+
+    net_hiddens = q_network.init_net_hiddens()
 
     rb = ReplayMemory(
         args.buffer_size,
@@ -209,12 +190,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-            _, net_hiddens = q_network(torch.Tensor(obs).to(device), return_hiddens=True)
+            _, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens, return_hiddens=True)
         else:
-            q_values, net_hiddens = q_network(torch.Tensor(obs).to(device), return_hiddens=True)
-            q_values = q_values[0]
-            actions = torch.argmax(q_values, dim=1).cpu().numpy()
-            # print('actions', actions.shape)
+            q_values, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens, return_hiddens=True)
+            actions = torch.argmax(q_values[0], dim=1).cpu().numpy()
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
@@ -235,15 +214,18 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
+        net_hiddens = next_net_hiddens
 
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
                 data = rb.sample_seq(args.seq_len, args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=2)
+                    target_max, _ = target_network(data.observations, data.net_hiddens).max(dim=2)
+                    target_max = target_max[1:]
                     td_target = data.rewards + args.gamma * target_max * (1 - data.dones)
-                old_val = q_network(data.observations).gather(2, data.actions).squeeze(-1)
+                old_val = q_network(data.observations, data.net_hiddens).gather(2, data.actions).squeeze(-1)
+                old_val = old_val[:-1]
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:
