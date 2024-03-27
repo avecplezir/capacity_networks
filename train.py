@@ -184,7 +184,14 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 
     QNetwork = getattr(nets, args.qnetwork)
     q_network = QNetwork(envs, args).to(device)
-    optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
+    # optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
+
+    if args.lr is float:
+        lrs = [args.learning_rate] * len(q_network.q_networks)
+    optimizer = optim.Adam(
+            [{'params': q.parameters(), 'lr': args.learning_rate} for q, lr in zip(q_network.q_networks, lrs)]
+            )
+
     target_network = QNetwork(envs, args).to(device)
     target_network.load_state_dict(q_network.state_dict())
     print('q_network', q_network)

@@ -21,7 +21,7 @@ class ReplayMemory():
         self.device = device
 
     def add(self, transition):
-        state, next_state, action, reward, done, dict = transition
+        state, next_state, action, reward, done, info, dict = transition
         self.observation[self.idx] = state
         self.next_observation[self.idx] = next_state
         self.action[self.idx] = action 

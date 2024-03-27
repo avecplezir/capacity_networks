@@ -18,8 +18,9 @@ from stable_baselines3.common.atari_wrappers import (
     MaxAndSkipEnv,
     NoopResetEnv,
 )
-# from stable_baselines3.common.buffers import ReplayBuffer
-from replay_buffer_hiddens import ReplayMemory
+
+from replay_buffer import ReplayMemory
+from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -77,8 +78,6 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 4
     """the frequency of training"""
-    seq_len: int = 4
-    """the length of the sequence for training"""
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -106,70 +105,25 @@ def make_env(env_id, seed, idx, capture_video, run_name):
     return thunk
 
 
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
 # ALGO LOGIC: initialize agent here:
 class QNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
         self.network = nn.Sequential(
-            layer_init(nn.Conv2d(4, 32, 8, stride=4)),
+            nn.Conv2d(4, 32, 8, stride=4),
             nn.ReLU(),
-            layer_init(nn.Conv2d(32, 64, 4, stride=2)),
+            nn.Conv2d(32, 64, 4, stride=2),
             nn.ReLU(),
-            layer_init(nn.Conv2d(64, 64, 3, stride=1)),
+            nn.Conv2d(64, 64, 3, stride=1),
             nn.ReLU(),
             nn.Flatten(),
-            layer_init(nn.Linear(64 * 7 * 7, 512)),
+            nn.Linear(3136, 512),
             nn.ReLU(),
+            nn.Linear(512, env.single_action_space.n),
         )
-        self.lstm = nn.LSTM(512, 128)
 
-        self.critic = layer_init(nn.Linear(128, envs.single_action_space.n))
-        for name, param in self.lstm.named_parameters():
-            if "bias" in name:
-                nn.init.constant_(param, 0)
-            elif "weight" in name:
-                nn.init.orthogonal_(param, 1.0)
-        for name, param in self.lstm.named_parameters():
-            if "bias" in name:
-                nn.init.constant_(param, 0)
-            elif "weight" in name:
-                nn.init.orthogonal_(param, 1.0)
-
-    def get_states(self, x, lstm_state, done):
-        hidden = self.network(x / 255.0)
-
-        print('hidden', hidden.shape)
-        # LSTM logic
-        batch_size = lstm_state[0].shape[1]
-        hidden = hidden.reshape((-1, batch_size, self.lstm.input_size))
-        done = done.reshape((-1, batch_size))
-        print('2 hidden', hidden.shape)
-        print('done', done.shape)
-        new_hidden = []
-        for h, d in zip(hidden, done):
-            print('h, d, lstm_state', h.shape, d.shape, lstm_state[0].shape, lstm_state[1].shape)
-            nd = (1.0 - d).view((1, -1, 1))
-            print('nd', nd.shape)
-            h, lstm_state = self.lstm(
-                h.unsqueeze(0),
-                (
-                    nd * lstm_state[0],
-                    nd * lstm_state[1],
-                ),
-            )
-            new_hidden += [h]
-        new_hidden = torch.flatten(torch.cat(new_hidden), 0, 1)
-        return new_hidden, lstm_state
-
-    def forward(self, x, lstm_state, done, return_lstm_state=False):
-        hidden, lstm_state = self.get_states(x, lstm_state, done)
-        if return_lstm_state:
-            return self.critic(hidden), lstm_state
-        return self.critic(hidden)
+    def forward(self, x):
+        return self.network(x / 255.0)
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
@@ -231,33 +185,25 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         envs.single_observation_space.shape,
         envs.single_action_space.n,
         envs.single_observation_space.dtype,
-        q_network.lstm.hidden_size,
+        device=device,
+        dict={},
     )
+
     start_time = time.time()
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
-    next_lstm_state = (
-        torch.zeros(q_network.lstm.num_layers, args.num_envs, q_network.lstm.hidden_size).to(device),
-        torch.zeros(q_network.lstm.num_layers, args.num_envs, q_network.lstm.hidden_size).to(device),
-    )  # hidden and cell states (see https://youtu.be/8HyCNIVRbSU)
-    current_lstm_state = next_lstm_state
-    next_done = torch.zeros(args.num_envs).to(device)
-
     for global_step in range(args.total_timesteps):
-        initial_lstm_state = (next_lstm_state[0].clone(), next_lstm_state[1].clone())
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
-            q_values, next_lstm_state = q_network(torch.Tensor(obs).to(device), next_lstm_state,
-                                                  torch.Tensor(next_done).to(device), return_lstm_state=True)
+            q_values = q_network(torch.Tensor(obs).to(device))
             actions = torch.argmax(q_values, dim=1).cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-        next_done = np.logical_or(terminations, truncations)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -272,9 +218,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         for idx, trunc in enumerate(truncations):
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
-        # rb.add(obs, actions, rewards, real_next_obs, terminations)
-        rb.add((obs, actions, rewards, real_next_obs, terminations, *(h.detach().cpu().numpy() for h in current_lstm_state)))
-        current_lstm_state = next_lstm_state
+        rb.add((obs, real_next_obs, actions, rewards, terminations, infos, {}))
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
@@ -282,11 +226,11 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
-                data = rb.sample_seq(args.seq_len, args.batch_size)
+                data = rb.sample(args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations, (data.lstm_h_state[1], data.lstm_c_state[1])).max(dim=1)
+                    target_max, _ = target_network(data.next_observations).max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
-                old_val = q_network(data.observations, (data.lstm_h_state[0], data.lstm_c_state[0])).gather(2, data.actions).squeeze()
+                old_val = q_network(data.observations).gather(1, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:
