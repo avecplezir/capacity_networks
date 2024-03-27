@@ -9,7 +9,7 @@ class ReplayMemory():
         self.buffer_limit = buffer_limit
         self.observation = np.empty((buffer_limit,) + self.obs_size, dtype=obs_dtype)
         self.next_observation = np.empty((buffer_limit,) + self.obs_size, dtype=obs_dtype)
-        self.action = np.empty((buffer_limit, action_size), dtype=np.float32)
+        self.action = np.empty((buffer_limit, action_size), dtype=np.int64)
         self.reward = np.empty((buffer_limit,), dtype=np.float32) 
         self.terminal = np.empty((buffer_limit,), dtype=bool)
         self.dict_keys = dict.keys()
@@ -36,19 +36,24 @@ class ReplayMemory():
         idxes = np.random.randint(0, self.buffer_limit if self.full else self.idx, size=n)
         obs, act, rew, next_obs, term = self.observation[idxes], self.action[idxes], self.reward[idxes], \
             self.next_observation[idxes], self.terminal[idxes]
+        dict = {}
+        for key in self.dict_keys:
+            dict[key] = self.__dict__[key][idxes]
         obs = th.tensor(obs, dtype=th.float32).to(self.device)
-        act = th.tensor(act, dtype=th.float32).to(self.device)
+        act = th.tensor(act, dtype=th.int64).to(self.device)
         rew = th.tensor(rew, dtype=th.float32).to(self.device)
         next_obs = th.tensor(next_obs, dtype=th.float32).to(self.device)
         term = th.tensor(term, dtype=th.float32).to(self.device)
-        return ReplayBufferSamples(obs, act, rew, next_obs, term)
+        for key, value in dict.items():
+            dict[key] = th.tensor(value, dtype=th.float32).to(self.device)
+        return ReplayBufferSamples(obs, act, rew, next_obs, term, dict)
 
     def sample_seq(self, seq_len, batch_size):
         n = batch_size
         l = seq_len
         obs, act, rew, next_obs, term, dict = self._retrieve_batch(np.asarray([self._sample_idx(l) for _ in range(n)]), n, l)
         obs = th.tensor(obs, dtype=th.float32).to(self.device)
-        act = th.tensor(act, dtype=th.float32).to(self.device)
+        act = th.tensor(act, dtype=th.int64).to(self.device)
         rew = th.tensor(rew, dtype=th.float32).to(self.device)
         next_obs = th.tensor(next_obs, dtype=th.float32).to(self.device)
         term = th.tensor(term, dtype=th.float32).to(self.device)
@@ -87,4 +92,4 @@ class ReplayBufferSamples(NamedTuple):
     rewards: th.Tensor
     next_observations: th.Tensor
     dones: th.Tensor
-    additional: dict
+    net_hiddens: dict

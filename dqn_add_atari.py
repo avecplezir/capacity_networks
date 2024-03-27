@@ -78,6 +78,9 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 4
     """the frequency of training"""
+    seq_len: int = 1
+    """the length of the sequence in the samples"""
+
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -122,8 +125,16 @@ class QNetwork(nn.Module):
             nn.Linear(512, env.single_action_space.n),
         )
 
-    def forward(self, x):
-        return self.network(x / 255.0)
+    def forward(self, x, return_hiddens=False):
+        if len(x.shape) == 4:
+            x = x.unsqueeze(0)
+        s, b, ch, w, h = x.shape
+        x = x.view(s * b, ch, w, h)
+        out = self.network(x / 255.0)
+        out = out.view(s, b, -1)
+        if return_hiddens:
+            return out, {}, #{'hidden': None}
+        return out
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
@@ -183,7 +194,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     rb = ReplayMemory(
         args.buffer_size,
         envs.single_observation_space.shape,
-        envs.single_action_space.n,
+        1,
         envs.single_observation_space.dtype,
         device=device,
         dict={},
@@ -198,10 +209,12 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+            _, net_hiddens = q_network(torch.Tensor(obs).to(device), return_hiddens=True)
         else:
-            q_values = q_network(torch.Tensor(obs).to(device))
+            q_values, net_hiddens = q_network(torch.Tensor(obs).to(device), return_hiddens=True)
+            q_values = q_values[0]
             actions = torch.argmax(q_values, dim=1).cpu().numpy()
-
+            # print('actions', actions.shape)
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
@@ -218,7 +231,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         for idx, trunc in enumerate(truncations):
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
-        rb.add((obs, real_next_obs, actions, rewards, terminations, infos, {}))
+        rb.add((obs, real_next_obs, actions, rewards, terminations, infos, net_hiddens))
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
@@ -226,11 +239,11 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
-                data = rb.sample(args.batch_size)
+                data = rb.sample_seq(args.seq_len, args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=1)
-                    td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
-                old_val = q_network(data.observations).gather(1, data.actions).squeeze()
+                    target_max, _ = target_network(data.next_observations).max(dim=2)
+                    td_target = data.rewards + args.gamma * target_max * (1 - data.dones)
+                old_val = q_network(data.observations).gather(2, data.actions).squeeze(-1)
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:
