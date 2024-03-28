@@ -109,7 +109,7 @@ class QNetworkMinAtar(nn.Module):
         if len(x.shape) == 4:
             x = x.unsqueeze(0)
         s, b, ch, w, h = x.shape
-        if ch > 32:
+        if ch > 9:
             x = x.permute(0, 1, -1, -3, -2).contiguous()
             s, b, ch, w, h = x.shape
         x = x.view(s * b, ch, w, h)
