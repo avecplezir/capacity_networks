@@ -176,8 +176,8 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     rb = ReplayMemory(
         args.buffer_size,
         envs.single_observation_space.shape,
-        1,
-        envs.single_observation_space.dtype,
+        action_size=1,
+        obs_dtype=envs.single_observation_space.dtype,
         device=device,
         dict=net_hiddens,
     )
@@ -226,11 +226,9 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 with torch.no_grad():
                     target_max, _ = target_network(data.observations, data.net_hiddens).max(dim=2)
                     target_max = target_max[1:]
-                    print('target_max', target_max.shape)
                     td_target = data.rewards[:-1] + args.gamma * target_max * (1 - data.dones[:-1])
                 old_val = q_network(data.observations, data.net_hiddens).gather(2, data.actions).squeeze(-1)
                 old_val = old_val[:-1]
-                print('old_val', old_val.shape)
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:
