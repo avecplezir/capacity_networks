@@ -81,6 +81,8 @@ class Args:
     """the frequency of training"""
     seq_len: int = 1
     """the length of the sequence in the samples"""
+    qnetwork: str = "QNetwork"
+    """the type of Q network to use"""
 
 
 
