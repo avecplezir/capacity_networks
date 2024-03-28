@@ -16,7 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from replay_buffer import ReplayMemory
 from nets import nets_seq
-import make_envs
+from make_envs import make_env
 
 @dataclass
 class Args:
@@ -123,13 +123,6 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     args.device = device
 
     # env setup
-    if 'MinAtar' in args.env_id:
-        print('making MinAtar environment')
-        make_env = make_envs.make_env_minatary
-    elif 'LunarLander' in args.env_id:
-        make_env = make_envs.make_env_luna
-    else:
-        make_env = make_envs.make_env
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
     )

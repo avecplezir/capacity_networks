@@ -7,7 +7,21 @@ from stable_baselines3.common.atari_wrappers import (
     NoopResetEnv,
 )
 
+
 def make_env(env_id, seed, idx, capture_video, run_name):
+    if 'MinAtar' in env_id:
+        print('making MinAtar environment')
+        make_env = make_env_minatary(env_id, seed, idx, capture_video, run_name)
+    elif 'LunarLander' in env_id:
+        print('making LunarLander rgb environment')
+        make_env = make_env_luna(env_id, seed, idx, capture_video, run_name)
+    else:
+        print('making Atari environment')
+        make_env = make_env_atati(env_id, seed, idx, capture_video, run_name)
+    return make_env
+
+
+def make_env_atati(env_id, seed, idx, capture_video, run_name):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
