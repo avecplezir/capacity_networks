@@ -113,7 +113,6 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 # ALGO LOGIC: initialize agent here:
 import torch
-import torch.nn as nn
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
@@ -169,7 +168,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     QNetwork = getattr(nets_seq, args.qnetwork)
     q_network = QNetwork(envs, args).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(envs).to(device)
+    target_network = QNetwork(envs, args).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
     net_hiddens = q_network.init_net_hiddens()
@@ -180,7 +179,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         1,
         envs.single_observation_space.dtype,
         device=device,
-        dict={},
+        dict=net_hiddens,
     )
 
     start_time = time.time()
@@ -192,9 +191,11 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-            _, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens, return_hiddens=True)
+            with torch.no_grad():
+                _, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens, return_hiddens=True)
         else:
-            q_values, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens, return_hiddens=True)
+            with torch.no_grad():
+                q_values, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens, return_hiddens=True)
             actions = torch.argmax(q_values[0], dim=1).cpu().numpy()
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
@@ -225,9 +226,11 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 with torch.no_grad():
                     target_max, _ = target_network(data.observations, data.net_hiddens).max(dim=2)
                     target_max = target_max[1:]
-                    td_target = data.rewards + args.gamma * target_max * (1 - data.dones)
+                    print('target_max', target_max.shape)
+                    td_target = data.rewards[:-1] + args.gamma * target_max * (1 - data.dones[:-1])
                 old_val = q_network(data.observations, data.net_hiddens).gather(2, data.actions).squeeze(-1)
                 old_val = old_val[:-1]
+                print('old_val', old_val.shape)
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:

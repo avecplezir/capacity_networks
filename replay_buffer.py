@@ -14,7 +14,7 @@ class ReplayMemory():
         self.terminal = np.empty((buffer_limit,), dtype=bool)
         self.dict_keys = dict.keys()
         for key, value in dict.items():
-            self.__dict__[key] = np.empty((buffer_limit,) + value, dtype=np.float32)
+            self.__dict__[key] = np.empty((buffer_limit,) + value.shape[1:], dtype=np.float32)
 
         self.idx = 0
         self.full = False
@@ -28,7 +28,7 @@ class ReplayMemory():
         self.reward[self.idx] = reward
         self.terminal[self.idx] = done
         for key, value in dict.items():
-            self.__dict__[key][self.idx] = value
+            self.__dict__[key][self.idx] = value.cpu().numpy()
         self.idx = (self.idx + 1) % self.buffer_limit
         self.full = self.full or self.idx == 0
     
@@ -80,7 +80,7 @@ class ReplayMemory():
             self.next_observation[vec_idxs].reshape((l, n) + self.obs_size), self.terminal[vec_idxs].reshape(l, n)
         dict = {}
         for key in self.dict_keys:
-            dict[key] = self.__dict__[key][vec_idxs].reshape(l, n, self.__dict__[key].shape[1:])
+            dict[key] = self.__dict__[key][vec_idxs].reshape((l, n) + self.__dict__[key].shape[1:])
         return obs, act, rew, next_obs, term, dict
     
     def __len__(self):

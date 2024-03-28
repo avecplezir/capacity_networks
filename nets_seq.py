@@ -50,9 +50,9 @@ class QNetworkLSTM(nn.Module):
             nn.Linear(512, 512),
         )
 
-        self.lstm = nn.LSTM(512, 128, batch_first=False)
+        self.lstm = nn.LSTM(512, 128, batch_first=False, num_layers=2)
 
-        self.predictor = nn.Linear(128, env.single_action_space.n),
+        self.predictor = nn.Linear(128, env.single_action_space.n)
 
     def forward(self, x, hiddens, return_hiddens=False):
         if len(x.shape) == 4:
@@ -61,8 +61,13 @@ class QNetworkLSTM(nn.Module):
         x = x.view(s * b, ch, w, h)
         out = self.encoder(x / 255.0)
         out = out.view(s, b, -1)
-
-        out, (h, c) = self.lstm(out, (hiddens['h'], hiddens['c']))
+        if len(hiddens['h'].shape) == 4:
+            (h, c) = (hiddens['h'][0], hiddens['c'][0])
+        else:
+            (h, c) = hiddens['h'], hiddens['c']
+        (h, c) = h.transpose(0, 1).contiguous(), c.transpose(0, 1).contiguous()
+        out, (h, c) = self.lstm(out, (h, c))
+        (h, c) = h.transpose(0, 1), c.transpose(0, 1)
         out = self.predictor(out)
         if return_hiddens:
             return out, {'h': h, 'c': c}
@@ -70,7 +75,7 @@ class QNetworkLSTM(nn.Module):
 
     def init_net_hiddens(self):
         h, c = \
-            torch.zeros(self.lstm.num_layers, self.args.num_envs, self.args.lstm.hidden_size).to(self.args.device), \
-            torch.zeros(self.lstm.num_layers, self.args.num_envs, self.args.hidden_size).to(self.args.device),
+            torch.zeros(self.args.num_envs, self.lstm.num_layers, self.lstm.hidden_size).to(self.args.device), \
+            torch.zeros(self.args.num_envs, self.lstm.num_layers, self.lstm.hidden_size).to(self.args.device),
         # hidden and cell states (see https://youtu.be/8HyCNIVRbSU)
         return {'h': h, 'c': c}
