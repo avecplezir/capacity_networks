@@ -5,8 +5,9 @@ class QNetwork(nn.Module):
     def __init__(self, env, args):
         super().__init__()
         self.args = args
+        input_channels = min(env.single_observation_space.shape[0], env.single_observation_space.shape[-1])
         self.network = nn.Sequential(
-            nn.Conv2d(4, 32, 8, stride=4),
+            nn.Conv2d(input_channels, 32, 8, stride=4),
             nn.ReLU(),
             nn.Conv2d(32, 64, 4, stride=2),
             nn.ReLU(),
@@ -22,6 +23,9 @@ class QNetwork(nn.Module):
         if len(x.shape) == 4:
             x = x.unsqueeze(0)
         s, b, ch, w, h = x.shape
+        if ch > 32:
+            x = x.permute(0, 1, -1, -3, -2).contiguous()
+            s, b, ch, w, h = x.shape
         x = x.view(s * b, ch, w, h)
         out = self.network(x / 255.0)
         out = out.view(s, b, -1)
@@ -37,8 +41,9 @@ class QNetworkLSTM(nn.Module):
     def __init__(self, env, args):
         super().__init__()
         self.args = args
+        input_channels = min(env.single_observation_space.shape[0], env.single_observation_space.shape[-1])
         self.encoder = nn.Sequential(
-            nn.Conv2d(4, 32, 8, stride=4),
+            nn.Conv2d(input_channels, 32, 8, stride=4),
             nn.ReLU(),
             nn.Conv2d(32, 64, 4, stride=2),
             nn.ReLU(),
@@ -58,6 +63,9 @@ class QNetworkLSTM(nn.Module):
         if len(x.shape) == 4:
             x = x.unsqueeze(0)
         s, b, ch, w, h = x.shape
+        if ch > 32:
+            x = x.permute(0, 1, -1, -3, -2).contiguous()
+            s, b, ch, w, h = x.shape
         x = x.view(s * b, ch, w, h)
         out = self.encoder(x / 255.0)
         out = out.view(s, b, -1)
