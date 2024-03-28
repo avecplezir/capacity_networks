@@ -15,7 +15,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
 from make_envs import make_env
-import nets
+from nets import nets_default
 
 @dataclass
 class Args:
@@ -71,6 +71,8 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 4
     """the frequency of training"""
+    qnetwork: str = "QNetwork"
+    """the type of Q network to use"""
 
 # ALGO LOGIC: initialize agent here:
 
@@ -125,10 +127,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    QNetwork = getattr(nets.nets_default, args.qnetwork)
+    QNetwork = getattr(nets_default, args.qnetwork)
     q_network = QNetwork(envs, args).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(envs).to(device)
+    target_network = QNetwork(envs, args).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
     rb = ReplayBuffer(

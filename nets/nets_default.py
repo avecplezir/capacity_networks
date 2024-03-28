@@ -20,7 +20,7 @@ class QNetwork(nn.Module):
 
     def forward(self, x):
         b, ch, w, h = x.shape
-        if ch > 32:
+        if ch > 9:
             x = x.permute(0, 3, 1, 2).contiguous()
         return self.network(x / 255.0)
 
@@ -44,6 +44,6 @@ class QNetworkMinAtar(nn.Module):
 
     def forward(self, x):
         b, ch, w, h = x.shape
-        if ch > 32:
+        if ch > 9:
             x = x.permute(0, 3, 1, 2).contiguous()
         return self.network(x / 255.0)
