@@ -8,7 +8,6 @@ class ReplayMemory():
         self.obs_size = obs_size
         self.buffer_limit = buffer_limit
         self.observation = np.empty((buffer_limit,) + self.obs_size, dtype=obs_dtype)
-        self.next_observation = np.empty((buffer_limit,) + self.obs_size, dtype=obs_dtype)
         self.action = np.empty((buffer_limit, action_size), dtype=np.int64)
         self.reward = np.empty((buffer_limit,), dtype=np.float32) 
         self.terminal = np.empty((buffer_limit,), dtype=bool)
@@ -23,19 +22,21 @@ class ReplayMemory():
     def add(self, transition):
         state, next_state, action, reward, done, info, dict = transition
         self.observation[self.idx] = state
-        self.next_observation[self.idx] = next_state
+        next_idx = (self.idx + 1) % self.buffer_limit
+        self.observation[next_idx] = next_state
         self.action[self.idx] = action 
         self.reward[self.idx] = reward
         self.terminal[self.idx] = done
         for key, value in dict.items():
             self.__dict__[key][self.idx] = value.cpu().numpy()
-        self.idx = (self.idx + 1) % self.buffer_limit
+        self.idx = next_idx
         self.full = self.full or self.idx == 0
     
     def sample(self, n):
         idxes = np.random.randint(0, self.buffer_limit if self.full else self.idx, size=n)
+        next_idx = (idxes + 1) % self.buffer_limit
         obs, act, rew, next_obs, term = self.observation[idxes], self.action[idxes], self.reward[idxes], \
-            self.next_observation[idxes], self.terminal[idxes]
+            self.observation[next_idx], self.terminal[idxes]
         dict = {}
         for key in self.dict_keys:
             dict[key] = self.__dict__[key][idxes]
@@ -75,9 +76,10 @@ class ReplayMemory():
 
     def _retrieve_batch(self, idxs, n, l):
         vec_idxs = idxs.transpose().reshape(-1)
+        next_vec_idxs = (vec_idxs + 1) % self.buffer_limit
         obs, act, rew, next_obs, term = self.observation[vec_idxs].reshape((l, n) + self.obs_size), \
             self.action[vec_idxs].reshape(l, n, -1), self.reward[vec_idxs].reshape(l, n), \
-            self.next_observation[vec_idxs].reshape((l, n) + self.obs_size), self.terminal[vec_idxs].reshape(l, n)
+            self.observation[next_vec_idxs].reshape((l, n) + self.obs_size), self.terminal[vec_idxs].reshape(l, n)
         dict = {}
         for key in self.dict_keys:
             dict[key] = self.__dict__[key][vec_idxs].reshape((l, n) + self.__dict__[key].shape[1:])

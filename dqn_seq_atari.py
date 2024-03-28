@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import gymnasium as gym
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
@@ -22,7 +21,7 @@ from stable_baselines3.common.atari_wrappers import (
 from torch.utils.tensorboard import SummaryWriter
 
 from replay_buffer import ReplayMemory
-import nets_seq
+from nets import nets_seq
 
 
 @dataclass
@@ -109,10 +108,6 @@ def make_env(env_id, seed, idx, capture_video, run_name):
         return env
 
     return thunk
-
-
-# ALGO LOGIC: initialize agent here:
-import torch
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
