@@ -10,13 +10,6 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
-from stable_baselines3.common.atari_wrappers import (
-    ClipRewardEnv,
-    EpisodicLifeEnv,
-    FireResetEnv,
-    MaxAndSkipEnv,
-    NoopResetEnv,
-)
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
@@ -290,15 +283,12 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 #     else:
                 #         loss_comp[0] = torch.zeros_like(loss_comp[0])
 
-                print('loss_comp.values()', loss_comp.values())
                 loss = sum(loss_comp.values())
-                print('loss', loss)
 
-                if global_step % 100 == 0:
+                if global_step % 1000 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
                     for i, loss in loss_comp.items():
                         writer.add_scalar(f"losses/td_loss_{i}", loss, global_step)
-                        print(f"losses/td_loss_{i}", loss, global_step, learn_first_nn)
                     for i, v in enumerate(v_list):
                         writer.add_scalar(f"losses/q_values_{i}", v.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
