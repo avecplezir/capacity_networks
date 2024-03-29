@@ -127,6 +127,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
+    args.input_channels = min(envs.single_observation_space.shape[0], envs.single_observation_space.shape[-1])
 
     QNetwork = getattr(nets_seq, args.qnetwork)
     q_network = QNetwork(envs, args).to(device)
@@ -155,10 +156,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
             with torch.no_grad():
-                _, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens, return_hiddens=True)
+                _, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens)
         else:
             with torch.no_grad():
-                q_values, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens, return_hiddens=True)
+                q_values, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens)
             actions = torch.argmax(q_values[0], dim=1).cpu().numpy()
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
@@ -187,11 +188,14 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             if global_step % args.train_frequency == 0:
                 data = rb.sample_seq(args.seq_len, args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.observations, data.net_hiddens).max(dim=2)
-                    target_max = target_max[1:]
-                    td_target = data.rewards[:-1] + args.gamma * target_max * (1 - data.dones[:-1])
-                old_val = q_network(data.observations, data.net_hiddens).gather(2, data.actions).squeeze(-1)
-                old_val = old_val[:-1]
+                    target_q_values, _ = target_network(data.next_observations, data.net_hiddens)
+                    target_max, _ = target_q_values.max(dim=2)
+                    # target_max = target_max[1:]
+                    # td_target = data.rewards[:-1] + args.gamma * target_max * (1 - data.dones[:-1])
+                    td_target = data.rewards + args.gamma * target_max * (1 - data.dones)
+                old_q_values, _  = q_network(data.observations, data.net_hiddens)
+                old_val = old_q_values.gather(2, data.actions).squeeze(-1)
+                # old_val = old_val[:-1]
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 1000 == 0:

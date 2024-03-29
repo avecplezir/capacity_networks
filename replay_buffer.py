@@ -3,11 +3,14 @@ from typing import NamedTuple
 import torch as th
 
 class ReplayMemory():
-    def __init__(self, buffer_limit, obs_size, action_size, obs_dtype, device, dict={}):
+    def __init__(self, buffer_limit, obs_size, action_size, obs_dtype, device, dict={}, optmize_storage=False):
         print('buffer limit is = ', buffer_limit)
         self.obs_size = obs_size
         self.buffer_limit = buffer_limit
+        self.optmize_storage = optmize_storage
         self.observation = np.empty((buffer_limit,) + self.obs_size, dtype=obs_dtype)
+        if not self.optmize_storage:
+            self.next_observation = np.empty((buffer_limit,) + self.obs_size, dtype=obs_dtype)
         self.action = np.empty((buffer_limit, action_size), dtype=np.int64)
         self.reward = np.empty((buffer_limit,), dtype=np.float32) 
         self.terminal = np.empty((buffer_limit,), dtype=bool)
@@ -23,7 +26,10 @@ class ReplayMemory():
         state, next_state, action, reward, done, info, dict = transition
         self.observation[self.idx] = state
         next_idx = (self.idx + 1) % self.buffer_limit
-        self.observation[next_idx] = next_state
+        if self.optmize_storage:
+            self.observation[next_idx] = next_state
+        else:
+            self.next_observation[self.idx] = next_state
         self.action[self.idx] = action 
         self.reward[self.idx] = reward
         self.terminal[self.idx] = done
@@ -35,8 +41,11 @@ class ReplayMemory():
     def sample(self, n):
         idxes = np.random.randint(0, self.buffer_limit if self.full else self.idx, size=n)
         next_idx = (idxes + 1) % self.buffer_limit
-        obs, act, rew, next_obs, term = self.observation[idxes], self.action[idxes], self.reward[idxes], \
-            self.observation[next_idx], self.terminal[idxes]
+        obs, act, rew, term = self.observation[idxes], self.action[idxes], self.reward[idxes], self.terminal[idxes]
+        if self.optmize_storage:
+            next_obs = self.observation[next_idx]
+        else:
+            next_obs = self.next_observation[idxes]
         dict = {}
         for key in self.dict_keys:
             dict[key] = self.__dict__[key][idxes]
@@ -77,9 +86,14 @@ class ReplayMemory():
     def _retrieve_batch(self, idxs, n, l):
         vec_idxs = idxs.transpose().reshape(-1)
         next_vec_idxs = (vec_idxs + 1) % self.buffer_limit
-        obs, act, rew, next_obs, term = self.observation[vec_idxs].reshape((l, n) + self.obs_size), \
+        obs, act, rew, term = self.observation[vec_idxs].reshape((l, n) + self.obs_size), \
             self.action[vec_idxs].reshape(l, n, -1), self.reward[vec_idxs].reshape(l, n), \
-            self.observation[next_vec_idxs].reshape((l, n) + self.obs_size), self.terminal[vec_idxs].reshape(l, n)
+            self.terminal[vec_idxs].reshape(l, n)
+
+        if self.optmize_storage:
+            next_obs = self.observation[next_vec_idxs].reshape((l, n) + self.obs_size)
+        else:
+            next_obs = self.next_observation[vec_idxs].reshape((l, n) + self.obs_size)
         dict = {}
         for key in self.dict_keys:
             dict[key] = self.__dict__[key][vec_idxs].reshape((l, n) + self.__dict__[key].shape[1:])
