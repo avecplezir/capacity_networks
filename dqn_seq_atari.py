@@ -148,6 +148,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
 
     start_time = time.time()
+    global_step_threshold = 0
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
@@ -166,18 +167,15 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
-        if global_step == 0:
-            counts_final_info = 0
         if "final_info" in infos:
             for info in infos["final_info"]:
                 if info and "episode" in info:
-                    if counts_final_info < 100:
-                        counts_final_info += 1
-                    else:
+                    if global_step > global_step_threshold:
                         counts_final_info = 0
                         print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
                         writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
                         writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                        global_step_threshold += 1000
 
 
 
