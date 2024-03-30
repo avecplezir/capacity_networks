@@ -88,7 +88,6 @@ class AttentionBlock(nn.Module):
         self.mlpf = lambda x: m.dropout(m.c_proj(m.act(m.c_fc(x))))  # MLP forward
 
     def forward(self, x):
-        print('att x', x.shape)
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlpf(self.ln_2(x))
         return x
@@ -112,8 +111,6 @@ class PositionalEncoding(nn.Module):
         Arguments:
             x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
         """
-        print('pos x', x.shape)
-        print('pos pe', self.pe[:x.size(0)].shape)
         x = x + self.pe[:x.size(0)]
         return self.dropout(x)
 

@@ -263,6 +263,8 @@ class QNetworkMinAtarTransformer(nn.Module):
         out = self.attn(out)
         out = out.permute(1, 0, 2).contiguous()
         out = self.predictor(out)
+        if collect_prev_enc:
+            out = out[-1:]
         return out, {}
 
     def init_net_hiddens(self):
