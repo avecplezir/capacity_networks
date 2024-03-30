@@ -21,8 +21,7 @@ class QNetwork(nn.Module):
     def forward(self, x, hiddens, return_hiddens=False):
         if len(x.shape) == 4:
             x = x.unsqueeze(0)
-        s, b, ch, w, h = x.shape
-        if ch > 32:
+        if self.args.inverse_channels:
             x = x.permute(0, 1, -1, -3, -2).contiguous()
             s, b, ch, w, h = x.shape
         x = x.view(s * b, ch, w, h)
@@ -59,8 +58,7 @@ class QNetworkLSTM(nn.Module):
     def forward(self, x, hiddens):
         if len(x.shape) == 4:
             x = x.unsqueeze(0)
-        s, b, ch, w, h = x.shape
-        if ch > 32:
+        if self.args.inverse_channels:
             x = x.permute(0, 1, -1, -3, -2).contiguous()
             s, b, ch, w, h = x.shape
         x = x.view(s * b, ch, w, h)
@@ -136,10 +134,9 @@ class QNetworkMinAtarLSTM(nn.Module):
     def forward(self, x, hiddens):
         if len(x.shape) == 4:
             x = x.unsqueeze(0)
+        # inverse channels for minatari
+        x = x.permute(0, 1, -1, -3, -2).contiguous()
         s, b, ch, w, h = x.shape
-        if ch > 9:
-            x = x.permute(0, 1, -1, -3, -2).contiguous()
-            s, b, ch, w, h = x.shape
         x = x.view(s * b, ch, w, h)
         out = self.encoder(x / 255.0)
         out = out.view(s, b, -1)

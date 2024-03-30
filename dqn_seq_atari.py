@@ -128,6 +128,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
     args.input_channels = min(envs.single_observation_space.shape[0], envs.single_observation_space.shape[-1])
+    args.inverse_channels = envs.single_observation_space.shape[0] > envs.single_observation_space.shape[-1]
 
     QNetwork = getattr(nets_seq, args.qnetwork)
     q_network = QNetwork(envs, args).to(device)
