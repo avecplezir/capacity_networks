@@ -76,6 +76,8 @@ class Args:
     """the length of the sequence in the samples"""
     qnetwork: str = "QNetwork"
     """the type of Q network to use"""
+    use_relative_attention: bool = False
+    """if toggled, use relative attention"""
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
