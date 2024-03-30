@@ -40,9 +40,9 @@ class ReplayMemory():
     
     def sample(self, n):
         idxes = np.random.randint(0, self.buffer_limit if self.full else self.idx, size=n)
-        next_idx = (idxes + 1) % self.buffer_limit
         obs, act, rew, term = self.observation[idxes], self.action[idxes], self.reward[idxes], self.terminal[idxes]
         if self.optmize_storage:
+            next_idx = (idxes + 1) % self.buffer_limit
             next_obs = self.observation[next_idx]
         else:
             next_obs = self.next_observation[idxes]
@@ -75,22 +75,30 @@ class ReplayMemory():
         idxes = np.random.randint(0, self.buffer_limit if self.full else self.idx, size=data_size)
         return self.observation[idxes]
 
+    # def _sample_idx(self, L):
+    #     valid_idx = False
+    #     while not valid_idx:
+    #         idx = np.random.randint(0, self.buffer_limit if self.full else self.idx-L)
+    #         idxs = np.arange(idx, idx+L)%self.buffer_limit
+    #         valid_idx = (not self.idx in idxs[1:]) and (not self.terminal[idxs[:-1]].any())
+    #     return idxs
+
     def _sample_idx(self, L):
-        valid_idx = False 
+        valid_idx = False
         while not valid_idx:
             idx = np.random.randint(0, self.buffer_limit if self.full else self.idx-L)
             idxs = np.arange(idx, idx+L)%self.buffer_limit
-            valid_idx = (not self.idx in idxs[1:]) and (not self.terminal[idxs[:-1]].any())
-        return idxs 
+            valid_idx = not self.idx in idxs[1:]
+        return idxs
 
     def _retrieve_batch(self, idxs, n, l):
         vec_idxs = idxs.transpose().reshape(-1)
-        next_vec_idxs = (vec_idxs + 1) % self.buffer_limit
         obs, act, rew, term = self.observation[vec_idxs].reshape((l, n) + self.obs_size), \
             self.action[vec_idxs].reshape(l, n, -1), self.reward[vec_idxs].reshape(l, n), \
             self.terminal[vec_idxs].reshape(l, n)
 
         if self.optmize_storage:
+            next_vec_idxs = (vec_idxs + 1) % self.buffer_limit
             next_obs = self.observation[next_vec_idxs].reshape((l, n) + self.obs_size)
         else:
             next_obs = self.next_observation[vec_idxs].reshape((l, n) + self.obs_size)

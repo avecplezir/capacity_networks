@@ -165,12 +165,20 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
+        if global_step == 0:
+            counts_final_info = 0
         if "final_info" in infos:
             for info in infos["final_info"]:
                 if info and "episode" in info:
-                    print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                    writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                    writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                    if counts_final_info < 100:
+                        counts_final_info += 1
+                    else:
+                        counts_final_info = 0
+                        print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+                        writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
+                        writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+
+
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
@@ -188,14 +196,15 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             if global_step % args.train_frequency == 0:
                 data = rb.sample_seq(args.seq_len, args.batch_size)
                 with torch.no_grad():
-                    target_q_values, _ = target_network(data.next_observations, data.net_hiddens)
+                    # target_q_values, _ = target_network(data.next_observations, data.net_hiddens)
+                    target_q_values, _ = target_network(data.observations, data.net_hiddens)
                     target_max, _ = target_q_values.max(dim=2)
-                    # target_max = target_max[1:]
-                    # td_target = data.rewards[:-1] + args.gamma * target_max * (1 - data.dones[:-1])
-                    td_target = data.rewards + args.gamma * target_max * (1 - data.dones)
+                    target_max = target_max[1:]
+                    td_target = data.rewards[:-1] + args.gamma * target_max * (1 - data.dones[:-1])
+                    # td_target = data.rewards + args.gamma * target_max * (1 - data.dones)
                 old_q_values, _  = q_network(data.observations, data.net_hiddens)
                 old_val = old_q_values.gather(2, data.actions).squeeze(-1)
-                # old_val = old_val[:-1]
+                old_val = old_val[:-1]
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 1000 == 0:
