@@ -161,10 +161,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
             with torch.no_grad():
-                _, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens)
+                _, _, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens)
         else:
             with torch.no_grad():
-                q_values, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens)
+                q_values, _, next_net_hiddens = q_network(torch.Tensor(obs).to(device), net_hiddens)
             actions = torch.argmax(q_values[0], dim=1).cpu().numpy()
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
@@ -198,20 +198,29 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             if global_step % args.train_frequency == 0:
                 data = rb.sample_seq(args.seq_len, args.batch_size)
                 with torch.no_grad():
-                    # target_q_values, _ = target_network(data.next_observations, data.net_hiddens)
-                    target_q_values, _ = target_network(data.observations, data.net_hiddens)
+                    # q_value routine
+                    target_q_values, targets_q_values_eval, _ = target_network(data.observations, data.net_hiddens)
                     target_max, _ = target_q_values.max(dim=2)
-                    target_max = target_max[1:]
-                    td_target = data.rewards[:-1] + args.gamma * target_max * (1 - data.dones[:-1])
-                    # td_target = data.rewards + args.gamma * target_max * (1 - data.dones)
-                old_q_values, _  = q_network(data.observations, data.net_hiddens)
-                old_val = old_q_values.gather(2, data.actions).squeeze(-1)
-                old_val = old_val[:-1]
+                    td_target = data.rewards[:-1] + args.gamma * target_max[1:] * (1 - data.dones[:-1])
+
+                    # q_value_eval routine
+                    target_values_eval = targets_q_values_eval.gather(2, data.actions).squeeze(-1)
+                    td_target_eval = data.rewards[:-1] + args.gamma * target_values_eval[1:] * (1 - data.dones[:-1])
+
+                # q_value routine
+                old_q_values, q_values_eval, _  = q_network(data.observations, data.net_hiddens)
+                old_val = old_q_values.gather(2, data.actions).squeeze(-1)[:-1]
                 loss = F.mse_loss(td_target, old_val)
+
+                # q_value_eval routine
+                old_eval_val = q_values_eval.gather(2, data.actions).squeeze(-1)[:-1]
+                loss_eval = F.mse_loss(td_target_eval, old_eval_val)
 
                 if global_step % 1000 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
+                    writer.add_scalar("losses/td_eval_loss", loss_eval, global_step)
                     writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
+                    writer.add_scalar("losses/q_values_eval", old_eval_val.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
