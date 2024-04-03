@@ -198,13 +198,14 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     target_actions = torch.argmax(targets, dim=1).unsqueeze(1)
                     v_targets_list = [q.gather(1, target_actions).squeeze() for q in q_targets_list]
 
-                _, q_list = q_network(data.observations, return_compose=True)
+                q_sum, q_list = q_network(data.observations, return_compose=True)
                 v_list = [q.gather(1, data.actions).squeeze() for q in q_list]
 
                 # r1 + gamma * r2 + gamma^2 * r3
                 # r1 - v0 + gamma * (r2 - v1 + v1) + gamma^2 * (r3 - v2 + v2)... ...+ v_0
                 # r1 + gamma * v1 - v0  +  gamma * (r2 + gamma*v2 - v1 ) + gamma^2 * (r3 + gamma*v3 - v2)... ...+ v_0
                 # r'1 + gamma * r'2 + gamma^2 * r'3
+                loss_comp = {}
                 if args.pipeline == 0:
                     td_targets = []
                     new_reward = data.rewards.flatten()  # r - q1 + gamma * q_target2
@@ -212,76 +213,14 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                         td_target = new_reward + args.gamma * v1 * (1 - data.dones.flatten())
                         td_targets.append(td_target.detach())
                         new_reward = td_target - v0
-                elif args.pipeline == 1:
-                    td_targets = []
-                    # cum_sum_q_targets0 = v0+v1+v2+v3+...
-                    # cum_sum_q_targets1 = v1+v2+v3+...
-                    # ...
-                    cum_sum_q_targets = torch.flip(torch.cumsum(torch.stack(v_targets_list[::-1], dim=0), dim=0), dims=[0])
-                    cum_sum_q = torch.flip(torch.cumsum(torch.stack(v_list[::-1], dim=0), dim=0), dims=[0])
-                    new_reward = data.rewards.flatten()
-                    for i, v0 in enumerate(v_list):
-                        td_target = new_reward + args.gamma * cum_sum_q_targets[i] * (1 - data.dones.flatten())
-                        td_targets.append(td_target.detach())
-                        new_reward = td_target - v0
-                elif args.pipeline == 2:
-                    td_targets = []
-                    new_reward = data.rewards.flatten()
-                    td_target = new_reward + args.gamma * (v_targets_list[0] + v_targets_list[1]) * (1 - data.dones.flatten())
-                    td_targets.append(td_target.detach())
-                    new_reward = td_target - v_list[0]
-                    td_target = new_reward + args.gamma * v_targets_list[1] * (1 - data.dones.flatten())
-                    td_targets.append(td_target.detach())
-                elif args.pipeline == 3:
-                    td_targets = []
-                    reward = data.rewards.flatten() + args.gamma * v_targets_list[1] * (1 - data.dones.flatten()) - v_list[1]
-                    td_target = reward + args.gamma * v_targets_list[0] * (1 - data.dones.flatten())
-                    td_targets.append(td_target.detach())
-                    reward = data.rewards.flatten() + args.gamma * v_targets_list[0] * (1 - data.dones.flatten()) - v_list[0]
-                    td_target = reward + args.gamma * v_targets_list[1] * (1 - data.dones.flatten())
-                    td_targets.append(td_target.detach())
-                else:
-                    raise ValueError(f"unknown pipeline {args.pipeline}")
-
-                loss_comp = {}
-                if args.pipeline == 0:
                     for i, (q, t) in enumerate(zip(v_list, td_targets)):
                         loss_comp[i] = F.mse_loss(q, t)
                 elif args.pipeline == 1:
-                    for i, (cq, q, t) in enumerate(zip(cum_sum_q, v_list, td_targets)):
-                        loss_comp[i] = F.mse_loss(cq.detach() + q - q.detach(), t)
-                elif args.pipeline == 2:
-                    if args.learns_by_turns > 0:
-                        if global_step % args.learns_by_turns == 0:
-                            learn_first_nn = (learn_first_nn + 1) % 2
-                        if learn_first_nn:
-                            loss_comp[0] = F.mse_loss(v_list[0] + v_list[1].detach(), td_targets[0])
-                        else:
-                            loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
-                    else:
-                        loss_comp[0] = F.mse_loss(v_list[0] + v_list[1].detach(), td_targets[0])
-                        loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
-                elif args.pipeline == 3:
-                    if args.learns_by_turns > 0:
-                        if global_step % args.learns_by_turns == 0:
-                            learn_first_nn = (learn_first_nn + 1) % 2
-                        if learn_first_nn:
-                            loss_comp[0] = F.mse_loss(v_list[0], td_targets[0])
-                        else:
-                            loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
-                    else:
-                        loss_comp[0] = F.mse_loss(v_list[0], td_targets[0])
-                        loss_comp[1] = F.mse_loss(v_list[1], td_targets[1])
+                    v_target_sum = targets.gather(1, target_actions).squeeze(-1)
+                    v_sum = q_sum.gahter(1, data.actions).squeeze(-1)
+                    loss_comp[0] = F.mse_loss(v_sum, v_target_sum)
                 else:
                     raise ValueError(f"unknown pipeline {args.pipeline}")
-
-                # if args.learns_by_turns > 0:
-                #     if global_step % args.learns_by_turns == 0:
-                #         learn_first_nn = (learn_first_nn + 1) % 2
-                #     if learn_first_nn:
-                #         loss_comp[1] = torch.zeros_like(loss_comp[1])
-                #     else:
-                #         loss_comp[0] = torch.zeros_like(loss_comp[0])
 
                 loss = sum(loss_comp.values())
 
