@@ -156,6 +156,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         handle_timeout_termination=False,
     )
     start_time = time.time()
+    global_step_threshold = 0
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
@@ -175,9 +176,12 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         if "final_info" in infos:
             for info in infos["final_info"]:
                 if info and "episode" in info:
-                    print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                    writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                    writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                    if global_step > global_step_threshold:
+                        counts_final_info = 0
+                        print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+                        writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
+                        writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                        global_step_threshold += 1000
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
@@ -217,7 +221,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                         loss_comp[i] = F.mse_loss(q, t)
                 elif args.pipeline == 1:
                     v_target_sum = targets.gather(1, target_actions).squeeze(-1)
-                    v_sum = q_sum.gahter(1, data.actions).squeeze(-1)
+                    v_sum = q_sum.gather(1, data.actions).squeeze(-1)
                     loss_comp[0] = F.mse_loss(v_sum, v_target_sum)
                 else:
                     raise ValueError(f"unknown pipeline {args.pipeline}")

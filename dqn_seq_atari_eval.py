@@ -78,7 +78,8 @@ class Args:
     """the type of Q network to use"""
     use_relative_attention: bool = False
     """if toggled, use relative attention"""
-    policy_evaluation_loss: bool = False
+    policy_regularization_loss: bool = False
+
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
@@ -215,6 +216,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 # q_value_eval routine
                 old_eval_val = q_values_eval.gather(2, data.actions).squeeze(-1)[:-1]
                 loss_eval = F.mse_loss(td_target_eval, old_eval_val)
+                loss += loss_eval
+
+                if args.policy_regularization_loss:
+                    pass
 
                 if global_step % 1000 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
