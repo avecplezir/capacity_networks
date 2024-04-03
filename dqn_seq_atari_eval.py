@@ -79,6 +79,8 @@ class Args:
     use_relative_attention: bool = False
     """if toggled, use relative attention"""
     policy_regularization_loss: bool = False
+    inverse_kl: bool = False
+    """if toggled, use inverse KL divergence"""
 
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
@@ -219,7 +221,18 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 loss += loss_eval
 
                 if args.policy_regularization_loss:
-                    pass
+                    def get_dist(x):
+                        x_exp = torch.exp(x)
+                        sum_exp = torch.sum(x_exp, dim=-1, keepdim=True)
+                        return x_exp / sum_exp
+
+                    v_old_proba = get_dist(old_val)
+                    v_eval_proba = get_dist(old_eval_val).detach()
+                    if args.inverse_kl:
+                        reg_loss = torch.mean(torch.sum(v_old_proba * torch.log(v_old_proba / v_eval_proba), dim=-1))
+                    else:
+                        reg_loss = torch.mean(torch.sum(v_eval_proba * torch.log(v_eval_proba / v_old_proba), dim=-1))
+                    loss += reg_loss
 
                 if global_step % 1000 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
@@ -228,6 +241,12 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     writer.add_scalar("losses/q_values_eval", old_eval_val.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+                    if args.policy_regularization_loss:
+                        writer.add_scalar("losses/kl_inv_loss", reg_loss, global_step)
+                        if args.inverse_kl:
+                            writer.add_scalar("losses/kl_inv_loss", reg_loss, global_step)
+                        else:
+                            writer.add_scalar("losses/kl_reg_loss", reg_loss, global_step)
 
                 # optimize the model
                 optimizer.zero_grad()

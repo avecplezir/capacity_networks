@@ -221,8 +221,9 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                         loss_comp[i] = F.mse_loss(q, t)
                 elif args.pipeline == 1:
                     v_target_sum = targets.gather(1, target_actions).squeeze(-1)
+                    td_target = data.rewards.flatten() + args.gamma * v_target_sum * (1 - data.dones.flatten())
                     v_sum = q_sum.gather(1, data.actions).squeeze(-1)
-                    loss_comp[0] = F.mse_loss(v_sum, v_target_sum)
+                    loss_comp[0] = F.mse_loss(v_sum, td_target)
                 else:
                     raise ValueError(f"unknown pipeline {args.pipeline}")
 
