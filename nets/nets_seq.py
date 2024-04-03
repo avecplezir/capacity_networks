@@ -379,3 +379,58 @@ class QNetworkMinAtarTransformer(nn.Module):
 
     def init_net_hiddens(self):
         return {}
+
+
+class QNetworkMinAtarTransformerEval(nn.Module):
+    def __init__(self, env, args):
+        super().__init__()
+        self.args = args
+        self.encoder = nn.Sequential(
+            nn.Conv2d(args.input_channels, 16, 3, stride=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, 2, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3, stride=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(128, 256),
+        )
+
+        if args.use_relative_attention:
+            self.attn = RelativeAttentionBlock(n_embd=256, n_head=8, block_size=args.seq_len)
+        else:
+            self.pos_encoder = PositionalEncoding(256)
+            self.attn = AttentionBlock(n_embd=256, n_head=8, block_size=args.seq_len)
+        self.predictor = nn.Linear(256, env.single_action_space.n)
+        self.predictor_eval = nn.Linear(256, env.single_action_space.n)
+
+        self.online_previous_enc = deque(maxlen=args.seq_len)
+
+    def forward(self, x, hiddens):
+        collect_prev_enc = (len(x.shape) == 4)
+        if len(x.shape) == 4:
+            x = x.unsqueeze(0)
+
+        # inverse channels for minatari
+        x = x.permute(0, 1, -1, -3, -2).contiguous()
+        s, b, ch, w, h = x.shape
+        x = x.view(s * b, ch, w, h)
+        out = self.encoder(x / 255.0)
+        out = out.view(s, b, -1)
+        if collect_prev_enc:
+            self.online_previous_enc.append(out)
+            out = torch.concat(list(self.online_previous_enc), dim=0)
+        if not self.args.use_relative_attention:
+            out = self.pos_encoder(out)
+        out = out.permute(1, 0, 2).contiguous()
+        out = self.attn(out)
+        out = out.permute(1, 0, 2).contiguous()
+        q_values = self.predictor(out)
+        q_values_eval = self.predictor_eval(out)
+        if collect_prev_enc:
+            q_values = q_values[-1:]
+            q_values_eval = q_values_eval[-1:]
+        return q_values, q_values_eval, {}
+
+    def init_net_hiddens(self):
+        return {}
