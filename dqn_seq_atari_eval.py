@@ -227,7 +227,6 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 # q_value_eval routine
                 old_eval_val = q_values_eval.gather(2, data.actions).squeeze(-1)[:-1]
                 loss_eval = F.mse_loss(td_target_eval, old_eval_val)
-                print('eval_loss', args.eval_loss)
                 if args.eval_loss:
                     loss += loss_eval
 
