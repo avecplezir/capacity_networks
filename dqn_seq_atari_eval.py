@@ -81,6 +81,7 @@ class Args:
     policy_regularization_loss: bool = False
     inverse_kl: bool = False
     """if toggled, use inverse KL divergence"""
+    collect_eval_data_frequency: int = 1000000
 
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
@@ -158,6 +159,9 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
+
+    eval_data = []
+
     for global_step in range(args.total_timesteps):
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
@@ -195,6 +199,9 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
         net_hiddens = next_net_hiddens
+
+        if global_step % args.collect_eval_data_frequency == 0:
+            eval_data.append(rb.sample_last_seq(args.seq_len))
 
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
@@ -242,11 +249,19 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
                     if args.policy_regularization_loss:
-                        writer.add_scalar("losses/kl_inv_loss", reg_loss, global_step)
                         if args.inverse_kl:
                             writer.add_scalar("losses/kl_inv_loss", reg_loss, global_step)
                         else:
                             writer.add_scalar("losses/kl_reg_loss", reg_loss, global_step)
+
+                    for i, data in enumerate(eval_data):
+                        with torch.no_grad():
+                            q_values, q_values_eval, _ = q_network(data.observations, data.net_hiddens)
+                            values, _ = q_values.max(dim=2)
+                            values_eval = q_values_eval.gather(2, data.actions).squeeze(-1)
+                            writer.add_scalar(f"eval/losses/values_{i}", values.mean().item(), global_step)
+                            writer.add_scalar(f"eval/losses/values_eval_{i}", values_eval.mean().item(), global_step)
+
 
                 # optimize the model
                 optimizer.zero_grad()

@@ -58,6 +58,20 @@ class ReplayMemory():
             dict[key] = th.tensor(value, dtype=th.float32).to(self.device)
         return ReplayBufferSamples(obs, act, rew, next_obs, term, dict)
 
+    def sample_last_seq(self, seq_len):
+        n = 1
+        l = seq_len
+        last_idx = np.arange(self.idx - l - 1, self.idx-1)[None]
+        obs, act, rew, next_obs, term, dict = self._retrieve_batch(last_idx, n, l)
+        obs = th.tensor(obs, dtype=th.float32).to(self.device)
+        act = th.tensor(act, dtype=th.int64).to(self.device)
+        rew = th.tensor(rew, dtype=th.float32).to(self.device)
+        next_obs = th.tensor(next_obs, dtype=th.float32).to(self.device)
+        term = th.tensor(term, dtype=th.float32).to(self.device)
+        for key, value in dict.items():
+            dict[key] = th.tensor(value, dtype=th.float32).to(self.device)
+        return ReplayBufferSamples(obs, act, rew, next_obs, term, dict)
+
     def sample_seq(self, seq_len, batch_size):
         n = batch_size
         l = seq_len
