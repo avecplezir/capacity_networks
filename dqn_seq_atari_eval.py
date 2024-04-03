@@ -78,6 +78,8 @@ class Args:
     """the type of Q network to use"""
     use_relative_attention: bool = False
     """if toggled, use relative attention"""
+    eval_loss: bool = False
+    """if toggled, use eval loss"""
     policy_regularization_loss: bool = False
     inverse_kl: bool = False
     """if toggled, use inverse KL divergence"""
@@ -225,7 +227,9 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 # q_value_eval routine
                 old_eval_val = q_values_eval.gather(2, data.actions).squeeze(-1)[:-1]
                 loss_eval = F.mse_loss(td_target_eval, old_eval_val)
-                loss += loss_eval
+                print('eval_loss', args.eval_loss)
+                if args.eval_loss:
+                    loss += loss_eval
 
                 if args.policy_regularization_loss:
                     def get_dist(x):
@@ -259,8 +263,8 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                             q_values, q_values_eval, _ = q_network(data.observations, data.net_hiddens)
                             values, _ = q_values.max(dim=2)
                             values_eval = q_values_eval.gather(2, data.actions).squeeze(-1)
-                            writer.add_scalar(f"eval/losses/values_{i}", values.mean().item(), global_step)
-                            writer.add_scalar(f"eval/losses/values_eval_{i}", values_eval.mean().item(), global_step)
+                            writer.add_scalar(f"losses/values_{i}", values.mean().item(), global_step)
+                            writer.add_scalar(f"losses/values_eval_{i}", values_eval.mean().item(), global_step)
 
 
                 # optimize the model
