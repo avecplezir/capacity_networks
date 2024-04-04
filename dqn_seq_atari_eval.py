@@ -260,7 +260,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     for i, data in enumerate(eval_data):
                         with torch.no_grad():
                             q_values, q_values_eval, _ = q_network(data.observations, data.net_hiddens)
-                            values, _ = q_values.max(dim=2)
+                            values, _ = q_values.gather(2, data.actions).squeeze(-1) #q_values.max(dim=2)
                             values_eval = q_values_eval.gather(2, data.actions).squeeze(-1)
                             writer.add_scalar(f"losses/values_{i}", values.mean().item(), global_step)
                             writer.add_scalar(f"losses/values_eval_{i}", values_eval.mean().item(), global_step)
